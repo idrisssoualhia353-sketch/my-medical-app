@@ -1,0 +1,104 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+import time
+from reportlab.pdfgen import canvas
+import io
+from streamlit_gsheets import GSheetsConnection # مكتبة الربط بجوجل شيت
+
+# إعدادات الصفحة
+st.set_page_config(page_title="docteur SAYAD AMMAR", layout="centered")
+
+# --- CSS لتنسيق الواجهة والخلفية ---
+page_bg_img = f"""
+<style>
+[data-testid="stAppViewContainer"] {{
+    background-image: url("https://raw.githubusercontent.com/your-username/your-repo/main/1000085174.jpg");
+    background-size: cover;
+}}
+.title-text {{
+    font-family: 'Times New Roman', serif;
+    color: #1a73e8;
+    text-align: center;
+    font-size: 50px;
+    font-weight: bold;
+    background-color: rgba(255, 255, 255, 0.8);
+    border-radius: 15px;
+    padding: 10px;
+}}
+</style>
+"""
+st.markdown(page_bg_img, unsafe_allow_html=True)
+st.markdown('<div class="title-text">𝓓𝓸𝓬𝓽𝓮𝓾𝓻 𝓢𝓐𝓨𝓐𝓓 𝓐𝓜𝓜𝓐𝓡</div>', unsafe_allow_html=True)
+
+# --- الربط مع Google Sheets ---
+# ملاحظة: ستحتاج لوضع رابط الجدول في ملف .streamlit/secrets.toml عند الرفع
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def get_data():
+    return conn.read(ttl="0") # قراءة البيانات فورياً دون تخزين مؤقت
+
+# --- الواجهة الرئيسية ---
+tabs = st.tabs(["🏥 حجز موعد", "🔐 لوحة تحكم الطبيب"])
+
+# 1. قسم المريض
+with tabs[0]:
+    st.subheader("سجل معلوماتك هنا")
+    with st.form("booking_form"):
+        fn = st.text_input("الاسم")
+        ln = st.text_input("اللقب")
+        age = st.number_input("العمر", 1, 100)
+        phone = st.text_input("رقم الهاتف")
+        btn = st.form_submit_button("تم")
+    
+    if btn:
+        if fn and ln and phone:
+            placeholder = st.empty()
+            placeholder.warning("جاري التحقق من البيانات... انتظر 5 ثوانٍ")
+            time.sleep(5)
+            
+            # إرسال البيانات لجوجل شيت
+            new_data = pd.DataFrame([{
+                "الاسم الكامل": f"{fn} {ln}",
+                "العمر": age,
+                "الهاتف": phone,
+                "وقت التسجيل": datetime.now().strftime("%H:%M:%S"),
+                "التاريخ": datetime.now().strftime("%Y-%m-%d")
+            }])
+            
+            # دمج البيانات الجديدة مع القديمة ورفعها
+            existing_data = get_data()
+            updated_data = pd.concat([existing_data, new_data], ignore_index=True)
+            conn.update(data=updated_data)
+            
+            st.success("تم حجز موعدك بنجاح وحفظه في السجلات!")
+            st.balloons()
+        else:
+            st.error("يرجى ملء جميع الخانات")
+
+# 2. قسم الطبيب
+with tabs[1]:
+    pwd = st.text_input("كلمة السر", type="password")
+    if pwd == "1234":
+        data = get_data()
+        
+        st.metric("أرباح اليوم التقديرية", f"{len(data) * 2000} DA")
+        
+        st.write("### قائمة المواعيد (مرتبة بالأقدمية)")
+        st.dataframe(data)
+        
+        st.write("### إصدار وصفة PDF")
+        if not data.empty:
+            patient = st.selectbox("اختر المريض", data["الاسم الكامل"].tolist())
+            rx = st.text_area("محتوى الوصفة")
+            if st.button("تحميل الوصفة PDF"):
+                # (نفس كود توليد PDF السابق)
+                buf = io.BytesIO()
+                c = canvas.Canvas(buf)
+                c.drawString(100, 800, f"Dr. SAYAD AMMAR - Prescription for: {patient}")
+                c.drawString(100, 750, f"Content: {rx}")
+                c.save()
+                st.download_button("اضغط للتحميل", buf.getvalue(), f"{patient}_RX.pdf")
+    elif pwd:
+        st.error("كلمة السر خاطئة")
+        
